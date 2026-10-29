@@ -1,0 +1,190 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Lenia Hunt</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<header>
+  <h1>Lenia Hunt <span class="sub">연속 세포 자동자 생물 사냥</span></h1>
+  <div class="stats" id="stats">—</div>
+</header>
+
+<main>
+  <section class="panel hunt">
+    <div class="panel-head">
+      <h2>사냥터 <small>16개 후보를 GPU에서 동시에</small></h2>
+      <div class="btns">
+        <button id="huntToggle" class="primary">▶ 사냥 시작</button>
+      </div>
+    </div>
+    <canvas id="hunt" width="512" height="512"></canvas>
+    <div class="legend" id="tally"></div>
+    <div class="recent" id="recent"></div>
+    <p class="note">각 칸은 독립된 128×128 토러스. 400스텝(40 시간단위) 후 분류합니다.
+      죽으면 σ를 넓히고 폭발하면 좁혀서 <b>죽음과 폭발 사이의 경계</b>를 따라 걷습니다.</p>
+  </section>
+
+  <section class="panel view">
+    <div class="panel-head">
+      <h2 id="viewTitle">관찰창</h2>
+      <div class="btns">
+        <button id="playToggle">⏸</button>
+        <button id="replaySeed" title="같은 시드로 처음부터 다시">↺ 시드에서</button>
+        <button id="spawnCrop" title="저장된 최종 형태로 시작">◉ 최종 형태</button>
+        <button id="loadOrbium" title="기준 생물 Orbium (Chan 2019)">Orbium</button>
+      </div>
+    </div>
+    <canvas id="view" width="512" height="512"></canvas>
+    <div class="sliders">
+      <label>μ <input type="range" id="mu" min="0.05" max="0.6" step="0.0005"><output id="muOut"></output></label>
+      <label>σ <input type="range" id="sigma" min="0.003" max="0.12" step="0.0001"><output id="sigmaOut"></output></label>
+      <label>속도 <input type="range" id="speed" min="1" max="12" step="1" value="3"><output id="speedOut"></output></label>
+    </div>
+    <div class="info" id="viewInfo"></div>
+  </section>
+</main>
+
+<section class="panel gallery-wrap">
+  <div class="panel-head">
+    <h2>도감 <small id="galCount"></small></h2>
+    <div class="btns">
+      <select id="sortBy">
+        <option value="new">최신순</option>
+        <option value="novel">새로움순</option>
+        <option value="speed">빠른순</option>
+      </select>
+      <button id="exportBtn">내보내기 JSON</button>
+      <label class="filebtn">가져오기<input type="file" id="importFile" accept="application/json"></label>
+      <button id="clearBtn" class="danger">비우기</button>
+    </div>
+  </div>
+  <p class="note">움직이거나(glider, pulsing-mover) 맥동하는(oscillator) 생존자만, 그리고 이미 도감에 있는 것들과
+    특징 공간에서 충분히 멀 때만 저장합니다. 새로 찾은 카드는 <b>확장팩</b>에 봉인되고, 팩을 뜯어야 도감에 들어옵니다.</p>
+  <div class="table-bar">
+    <button class="pack-btn" id="packBtn" hidden title="확장팩 뜯기">
+      <span class="mini-pack"></span><span class="pack-label">확장팩 뜯기</span><span class="pack-badge"></span>
+    </button>
+    <div class="view-toggle" role="group" aria-label="도감 배치">
+      <button id="viewPile" class="on">▤ 덱</button><button id="viewFan">◠ 부채꼴</button><button id="viewGrid">▦ 격자</button>
+    </div>
+  </div>
+  <div class="gallery" id="gallery"></div>
+  <div class="pile-nav" id="pileNav">
+    <button id="pilePrev" title="이전 카드">◀</button>
+    <span id="pileCount"></span>
+    <button id="pileNext" title="다음 카드 (맨 위 카드를 덱 밑으로)">▶</button>
+    <button id="pileShuffle" title="섞기">⤮ 섞기</button>
+    <button id="pileDraw" class="primary" title="무작위로 한 장 뽑아 크게 보기">한 장 뽑기</button>
+  </div>
+</section>
+
+<section class="panel explain" id="explain">
+  <div class="panel-head"><h2>어떻게 작동하나 <small>Lenia 규칙과 사냥 알고리즘</small></h2></div>
+
+  <div class="steps">
+    <article class="step">
+      <div class="num">1</div>
+      <h3>세계와 규칙</h3>
+      <p>격자의 각 칸은 0~1 사이의 연속값 A입니다. 매 스텝, 각 칸은 반지름 R 안의 이웃을 <b>고리 모양 가중치(커널 K)</b>로 평균 내고(U = K * A),
+        그 값이 μ에 가까우면 자라고 멀면 줄어듭니다.</p>
+      <div class="formula">A ← clip( A + dt · G(K * A), 0, 1 )</div>
+      <div class="figs">
+        <figure class="kfig"><canvas id="exKernel" width="160" height="160"></canvas><figcaption>커널 K: 가운데 칸 주변의 고리 모양 가중치. 밝을수록 그 거리의 이웃이 더 크게 반영됩니다.<br><span id="exKernelCap"></span></figcaption></figure>
+        <figure><canvas id="exGrowth" width="300" height="150"></canvas><figcaption>성장 함수 G(u) = 2·exp(−(u−μ)²/2σ²) − 1</figcaption></figure>
+      </div>
+      <p class="hint">두 그림은 지금 관찰창 생물의 실제 값입니다. μ·σ 슬라이더를 움직이면 같이 바뀝니다.
+        이 생물은 Bert Chan의 Lenia(2019)와 같은 단일 채널 규칙을 따릅니다.</p>
+    </article>
+
+    <article class="step">
+      <div class="num">2</div>
+      <h3>16개를 동시에</h3>
+      <svg viewBox="0 0 300 120" class="diagram" aria-label="GPU 타일 구조">
+        <g fill="none" stroke="var(--line2)">
+          <rect x="6" y="6" width="108" height="108" rx="4"/>
+          <path d="M33 6v108M60 6v108M87 6v108M6 33h108M6 60h108M6 87h108"/>
+        </g>
+        <rect x="33" y="33" width="27" height="27" fill="var(--teal)" opacity=".35"/>
+        <circle cx="46.5" cy="46.5" r="6" fill="var(--accent)"/>
+        <path d="M120 46 h34" stroke="var(--dim)" marker-end="url(#ar)"/>
+        <defs><marker id="ar" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto"><path d="M0 0L8 4L0 8z" fill="var(--dim)"/></marker></defs>
+        <rect x="160" y="10" width="132" height="72" rx="4" fill="none" stroke="var(--teal)"/>
+        <text x="226" y="30" text-anchor="middle" class="t">한 칸 = 128×128</text>
+        <text x="226" y="48" text-anchor="middle" class="t">양 끝이 이어진 토러스</text>
+        <text x="226" y="66" text-anchor="middle" class="t dim">자기만의 μ, σ, R, 커널</text>
+        <text x="60" y="118" text-anchor="middle" class="t dim" dy="0">WebGL2 텍스처 한 장</text>
+      </svg>
+      <p>GPU 텍스처 한 장을 4×4로 나눠 서로 다른 후보 16개를 한 번의 그리기로 계산합니다.
+        5스텝마다 상태를 읽어 와 칸마다 질량, 무게중심(토러스용 원형 평균), 모양을 잽니다.</p>
+    </article>
+
+    <article class="step">
+      <div class="num">3</div>
+      <h3>두 단계 판정</h3>
+      <svg viewBox="0 0 300 130" class="diagram" aria-label="판정 단계">
+        <line x1="10" y1="30" x2="290" y2="30" stroke="var(--line2)"/>
+        <line x1="10" y1="30" x2="85" y2="30" stroke="var(--teal)" stroke-width="4"/>
+        <line x1="85" y1="30" x2="290" y2="30" stroke="var(--accent)" stroke-width="4"/>
+        <text x="10" y="18" class="t dim">0</text><text x="85" y="18" class="t" text-anchor="middle">400</text><text x="290" y="18" class="t" text-anchor="end">1500 스텝</text>
+        <text x="47" y="50" class="t dim" text-anchor="middle">1차 선별</text>
+        <text x="188" y="50" class="t dim" text-anchor="middle">살아남은 후보만 확인 주행</text>
+        <g class="t">
+          <rect x="10" y="64" width="9" height="9" fill="var(--dies)"/><text x="24" y="72">질량 ≈ 0 → 소멸</text>
+          <rect x="10" y="82" width="9" height="9" fill="var(--explodes)"/><text x="24" y="90">30% 넘게 덮음 → 폭발</text>
+          <rect x="10" y="100" width="9" height="9" fill="var(--chaotic)"/><text x="24" y="108">한 덩어리가 아님 → 혼돈</text>
+          <rect x="160" y="64" width="9" height="9" fill="var(--glider)"/><text x="174" y="72">곧게 이동 → 글라이더</text>
+          <rect x="160" y="82" width="9" height="9" fill="var(--pulsing-mover)"/><text x="174" y="90">이동 + 맥동</text>
+          <rect x="160" y="100" width="9" height="9" fill="var(--oscillator)"/><text x="174" y="108">제자리 맥동 → 진동체</text>
+          <rect x="160" y="118" width="9" height="9" fill="var(--unstable)"/><text x="174" y="126">질량 25%+ 변화 → 불안정</text>
+        </g>
+      </svg>
+      <p>400스텝에서 이동·맥동처럼 보이면 1500스텝까지 더 돌린 뒤 <b>후반부만</b> 다시 판정합니다.
+        천천히 자라는 덩어리가 진동체로 잘못 저장되는 것을 막는 단계입니다.</p>
+    </article>
+
+    <article class="step">
+      <div class="num">4</div>
+      <h3>경계 따라 걷기</h3>
+      <svg viewBox="0 0 300 100" class="diagram" aria-label="시그마 조정">
+        <defs><linearGradient id="edge" x1="0" x2="1">
+          <stop offset="0" stop-color="var(--dies)"/><stop offset=".42" stop-color="var(--dies)"/>
+          <stop offset=".46" stop-color="var(--glider)"/><stop offset=".56" stop-color="var(--glider)"/>
+          <stop offset=".6" stop-color="var(--explodes)"/><stop offset="1" stop-color="var(--explodes)"/></linearGradient></defs>
+        <rect x="10" y="34" width="280" height="14" rx="7" fill="url(#edge)"/>
+        <text x="10" y="26" class="t dim">σ 작음</text><text x="290" y="26" class="t dim" text-anchor="end">σ 큼</text>
+        <text x="65" y="66" class="t" text-anchor="middle">소멸</text>
+        <text x="150" y="66" class="t" text-anchor="middle" style="fill:var(--accent);font-weight:600">생물</text>
+        <text x="235" y="66" class="t" text-anchor="middle">폭발</text>
+        <path d="M70 76 q40 14 70 0" fill="none" stroke="var(--dim)" marker-end="url(#ar)"/>
+        <path d="M232 76 q-40 14 -72 0" fill="none" stroke="var(--dim)" marker-end="url(#ar)"/>
+        <text x="100" y="98" class="t dim" text-anchor="middle">죽으면 σ↑</text>
+        <text x="200" y="98" class="t dim" text-anchor="middle">폭발하면 σ↓</text>
+      </svg>
+      <p>무작위 값은 대부분 바로 죽거나 터집니다. 그래서 각 칸은 한 계보를 이어 가며, 죽으면 σ를 5~20% 넓히고
+        터지면 좁혀 생물이 사는 좁은 띠로 다가갑니다. 생물을 찾으면 절반은 그 주변을 변이로 탐색하고,
+        새로 시작할 때 1/3은 도감 생물에서 갈라져 나옵니다.</p>
+    </article>
+
+    <article class="step">
+      <div class="num">5</div>
+      <h3>새로움 점수</h3>
+      <canvas id="exScatter" width="300" height="190"></canvas>
+      <p>생물마다 13차원 특징(속도, 직진성, 질량·모양 변동, 크기, 길쭉함, 퍼짐, 반지름별 질량 분포)을 만들고,
+        <b>도감에서 가장 가까운 3마리까지의 평균 거리</b>가 0.35 이상일 때만 저장합니다.
+        그래서 이미 있는 것과 닮은 생물은 쌓이지 않습니다. 위 그림은 도감의 두 축(속도, 질량 변동)만 그린 것입니다.</p>
+      <p>카드 <b>희귀도</b>도 같은 거리로 정합니다. 도감 전체에서 다른 모든 생물과 얼마나 다른지 순위를 매겨
+        상위 5%는 <span style="color:#f2a33a">✦ 전설</span>(주황 테두리, 카드 전체 홀로), 다음 15%는 <span style="color:#a493ff">★ 레어</span>(보라 테두리, 그림 홀로),
+        다음 30%는 <span style="color:#6fb0ff">◆ 언커먼</span>(파랑 테두리, 이름띠만 반짝), 나머지는 ● 커먼(은회색)입니다.
+        상대 순위라서 닮은 생물이 나중에 들어오면 등급이 내려갈 수 있습니다.</p>
+    </article>
+  </div>
+</section>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/gsap/3.12.5/gsap.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/gsap/3.12.5/Flip.min.js"></script>
+<script type="module" src="app.js"></script>
+</body>
+</html>
